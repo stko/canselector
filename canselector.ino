@@ -35,6 +35,7 @@ uint8_t actual_channel=0;
 uint8_t bitrate_index=0; // the actual bus speed. See README.md for details
 uint32_t actual_bit_rate=0; // the actual bitrate
 uint32_t actual_listen_msgID=0; // the actual sent_id msg ID. See README.md for details
+CAN_message_t msg;
 
 // get a unique manufactor number (https://forum.pjrc.com/threads/60034-Teensy-4-0-Serial-Number)
 
@@ -79,16 +80,16 @@ void setup(void) {
    
   can1.begin();
   can1.setBaudRate(DEFAULTBAUDRATE,TX);     // 500kbps data rate
-  can1.enableFIFO();
-  can1.enableFIFOInterrupt();
-  can1.onReceive(FIFO, canSniff20);
+  //can1.enableFIFO();
+  //can1.enableFIFOInterrupt();
+  //can1.onReceive(FIFO, canSniff20);
   //can1.mailboxStatus();
  
   can2.begin();
   can2.setBaudRate(DEFAULTBAUDRATE,LISTEN_ONLY);       // 500kbps data rate
-  can2.enableFIFO();
-  can2.enableFIFOInterrupt();
-  can2.onReceive(FIFO, canSniff20);
+  //can2.enableFIFO();
+  //can2.enableFIFOInterrupt();
+  //can2.onReceive(FIFO, canSniff20);
   //can2.mailboxStatus();
 
   //timer.begin(send_status, 500000); // Send frame every 500ms 
@@ -176,6 +177,41 @@ void canSniff20(const CAN_message_t &msg) { // global callback
 
 
 void loop() {
-  can2.events();
-  can1.events();
+  if ( can1.read(msg) ) {
+    if (msg.id == 0x7FF &&  // the magic message with 0x7FF and 'MAFI' as content
+        msg.buf[0] == 0x4D &&
+        msg.buf[1] == 0x41 &&
+        msg.buf[2] == 0x46 &&
+        msg.buf[3] == 0x49
+    ){
+      actual_listen_msgID = msg.buf[4]*256 + msg.buf[5] ;
+      send_status();
+    } else {
+        if (msg.id == actual_listen_msgID) {// its a config message to the own device id
+         if(msg.buf[0] == OCOTP_CFG1 >> 24 &&
+            msg.buf[1] == (OCOTP_CFG1 >> 16) % 256 &&
+            msg.buf[2] == (OCOTP_CFG1 >> 8) % 256 &&
+            msg.buf[3] == OCOTP_CFG1  % 256)
+          {
+            actual_channel=msg.buf[4] / 16;
+            bitrate_index=msg.buf[4] % 16;
+            if (bitrate_index){
+              actual_bit_rate=bit_rates[bitrate_index];
+              can2.setBaudRate(actual_bit_rate,TX);
+            }else{
+              can2.setBaudRate(actual_bit_rate,LISTEN_ONLY);
+            }
+            //TODO: Switch the channel here
+            Serial.printf("Actual Channel: %d Actual Bitrate: %d\n", actual_channel, bitrate_index);
+            send_status();
+          }
+          }else{
+            can2.write(msg);
+          }
+    }
+
+  }
+  else if ( can2.read(msg) ) {
+    can1.write(msg);
+  }
 }
