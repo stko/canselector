@@ -11,7 +11,7 @@ The other can bus speeds can be configured by the `bitrate_index`, which is hard
 | 1    | 125kb   |
 | 2    | 250kb   |
 | 3    | 500kb   |
-| 4    | 1 Mb   |
+| 4    | 1 Mb    |
 
 The protocol allows 16 can busses per multiplexer and 16 multiplexers, so in total 256 addressible can busses.
 
@@ -35,8 +35,14 @@ At any time, the master sends a "magic telegram" on id 0x7FF (which is the only 
 When receiving this message, the clients answer with a 8 byte long `status telegram` send to `sent_id`
 * bytes 0-3 contains as `client_id` a part of the internal device id as the unique identifier for that particular multiplexer.
 * byte 4 contains as bitmapped data the actual active external can bus (0-15) on the MSB and the `group_id` (0-15) on the LSB.
-* byte 5 HSB contains the actual `bitrate_index`
-* byte 6 & 7 are reserved for later extensions
+* byte 5 LSB contains the actual `bitrate_index`
+* byte 6 & 7 do contain the bus state of the first 8 can buses
+  * starts with bus 0
+  * 2 bits per bus
+    * 00 : state unknown
+    * 01 : state ok
+    * 10 : disturbed: Error frames
+    * 11 : Bus off
 
 ### the group id
 Obviously a multiplexer could be connected randomly to any can bus group in the overall system. So how should the master know to which multiplexer a real physical bus is been connected to?

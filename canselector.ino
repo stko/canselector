@@ -22,8 +22,18 @@ FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;  // can2 port
 IntervalTimer timer;
 uint8_t d=0;
 uint8_t tick=0;
+uint8_t bus_states[8]= {0,0,0,0,0,0,0,0};
+uint8_t bus_errors[8]= {0,0,0,0,0,0,0,0};
+uint32_t bit_rates[5]= {
+  0,
+  125000,
+  250000,
+  500000,
+  1000000
+};
 uint8_t actual_channel=0;
 uint8_t bitrate_index=0; // the actual bus speed. See README.md for details
+uint32_t actual_bit_rate=0; // the actual bitrate
 uint32_t actual_listen_msgID=0; // the actual sent_id msg ID. See README.md for details
 
 // get a unique manufactor number (https://forum.pjrc.com/threads/60034-Teensy-4-0-Serial-Number)
@@ -68,14 +78,14 @@ void setup(void) {
   config.sample = 75;
    
   can1.begin();
-  can1.setBaudRate(DEFAULTBAUDRATE);     // 500kbps data rate
+  can1.setBaudRate(DEFAULTBAUDRATE,TX);     // 500kbps data rate
   can1.enableFIFO();
   can1.enableFIFOInterrupt();
   can1.onReceive(FIFO, canSniff20);
   //can1.mailboxStatus();
  
   can2.begin();
-  can2.setBaudRate(DEFAULTBAUDRATE);       // 500kbps data rate
+  can2.setBaudRate(DEFAULTBAUDRATE,LISTEN_ONLY);       // 500kbps data rate
   can2.enableFIFO();
   can2.enableFIFOInterrupt();
   can2.onReceive(FIFO, canSniff20);
@@ -91,16 +101,17 @@ void send_status()
   msg.id = actual_listen_msgID | 1;
   
   msg.buf[0] = OCOTP_CFG1 >> 24;
-  msg.buf[1] = OCOTP_CFG1 >> 16 % 256;
-  msg.buf[2] = OCOTP_CFG1 >> 8 % 256;
+  msg.buf[1] = (OCOTP_CFG1 >> 16) % 256;
+  msg.buf[2] = (OCOTP_CFG1 >> 8) % 256;
   msg.buf[3] = OCOTP_CFG1  % 256;
   msg.buf[4] = (actual_channel % 16) *16 + (group_id % 16);
-  msg.buf[4] = (bitrate_index % 16) *16 ;
-
+  msg.buf[5] = (bitrate_index % 16) *16 ;
+  msg.buf[6] = bus_states[0]*64 + bus_states[1]*16 +bus_states[2]*4 +bus_states[3];
+  msg.buf[7] = bus_states[4]*64 + bus_states[5]*16 +bus_states[6]*4 +bus_states[7];
 
   msg.seq = 1;
   can1.write(MB15, msg); // write to can1
-  Serial.println("send config");
+  //Serial.println("send config");
 }
 
 
@@ -122,7 +133,8 @@ void canSniff20(const CAN_message_t &msg) { // global callback
     Serial.print(msg.buf[i], HEX); Serial.print(" ");
   } Serial.println();
   */
-  ticker();
+  //ticker();
+  CAN_error_t errors;
   if (msg.bus == 1) {
     if (msg.id == 0x7FF &&  // the magic message with 0x7FF and 'MAFI' as content
         msg.buf[0] == 0x4D &&
@@ -132,22 +144,33 @@ void canSniff20(const CAN_message_t &msg) { // global callback
     ){
       actual_listen_msgID = msg.buf[4]*256 + msg.buf[5] ;
       send_status();
-    } else if (msg.id == actual_listen_msgID && // its a config message to the own device id
-        msg.buf[0] == OCOTP_CFG1 >> 24 &&
-        msg.buf[1] == OCOTP_CFG1 >> 16 % 256 &&
-        msg.buf[2] == OCOTP_CFG1 >> 8 % 256 &&
-        msg.buf[3] == OCOTP_CFG1  % 256)
-      {
-        actual_channel=msg.buf[4] / 16;
-        bitrate_index=msg.buf[4] % 16;
-        //TODO: Switch the channel here
-        Serial.printf("Actual Channel: %d Actual Bitrate: %d", actual_channel, bitrate_index);
-        send_status();
-      }else{
-        can2.write(msg);
-      }
+    } else {
+        if (msg.id == actual_listen_msgID) {// its a config message to the own device id
+         if(msg.buf[0] == OCOTP_CFG1 >> 24 &&
+            msg.buf[1] == (OCOTP_CFG1 >> 16) % 256 &&
+            msg.buf[2] == (OCOTP_CFG1 >> 8) % 256 &&
+            msg.buf[3] == OCOTP_CFG1  % 256)
+          {
+            actual_channel=msg.buf[4] / 16;
+            bitrate_index=msg.buf[4] % 16;
+            if (bitrate_index){
+              actual_bit_rate=bit_rates[bitrate_index];
+              can2.setBaudRate(actual_bit_rate,TX);
+            }else{
+              can2.setBaudRate(actual_bit_rate,LISTEN_ONLY);
+            }
+            //TODO: Switch the channel here
+            Serial.printf("Actual Channel: %d Actual Bitrate: %d\n", actual_channel, bitrate_index);
+            send_status();
+          }
+          }else{
+            can2.write(msg);
+          }
     }
+
+  }
   if (msg.bus==2) can1.write(msg);
+  can2.error(errors,true);
 }
 
 
