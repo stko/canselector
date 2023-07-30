@@ -14,7 +14,7 @@
  */
 #include <FlexCAN_T4.h>
 
-#define DEFAULTBAUDRATE 250000
+#define DEFAULTBAUDRATE 500000
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;  // can1 port 
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;  // can2 port
@@ -115,9 +115,6 @@ void send_status()
   //Serial.println("send config");
 }
 
-
-
-void canSniff20(const CAN_message_t &msg) { // global callback
 /* 
   Serial.print("T4: ");
   Serial.print("MB "); Serial.print(msg.mb);
@@ -135,45 +132,6 @@ void canSniff20(const CAN_message_t &msg) { // global callback
   } Serial.println();
   */
   //ticker();
-  CAN_error_t errors;
-  if (msg.bus == 1) {
-    if (msg.id == 0x7FF &&  // the magic message with 0x7FF and 'MAFI' as content
-        msg.buf[0] == 0x4D &&
-        msg.buf[1] == 0x41 &&
-        msg.buf[2] == 0x46 &&
-        msg.buf[3] == 0x49
-    ){
-      actual_listen_msgID = msg.buf[4]*256 + msg.buf[5] ;
-      send_status();
-    } else {
-        if (msg.id == actual_listen_msgID) {// its a config message to the own device id
-         if(msg.buf[0] == OCOTP_CFG1 >> 24 &&
-            msg.buf[1] == (OCOTP_CFG1 >> 16) % 256 &&
-            msg.buf[2] == (OCOTP_CFG1 >> 8) % 256 &&
-            msg.buf[3] == OCOTP_CFG1  % 256)
-          {
-            actual_channel=msg.buf[4] / 16;
-            bitrate_index=msg.buf[4] % 16;
-            if (bitrate_index){
-              actual_bit_rate=bit_rates[bitrate_index];
-              can2.setBaudRate(actual_bit_rate,TX);
-            }else{
-              can2.setBaudRate(actual_bit_rate,LISTEN_ONLY);
-            }
-            //TODO: Switch the channel here
-            Serial.printf("Actual Channel: %d Actual Bitrate: %d\n", actual_channel, bitrate_index);
-            send_status();
-          }
-          }else{
-            can2.write(msg);
-          }
-    }
-
-  }
-  if (msg.bus==2) can1.write(msg);
-  can2.error(errors,true);
-}
-
 
 
 void loop() {

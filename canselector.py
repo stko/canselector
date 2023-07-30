@@ -35,6 +35,12 @@ busses = [
         "speed": 2 # see README.md for details
     },
     {
+        "name" : "500k",
+        "group": 0,
+        "channel": 4, # the input that bus is connected to at the CANSelector
+        "speed": 3 # see README.md for details
+    },
+    {
         "name" : "Alien",
         "group": 1,
         "channel": 3, # the input that bus is connected to at the CANSelector
@@ -51,7 +57,31 @@ busses = [
 group_ids={}
 last_selected_group=0
 can.util.set_logging_level("warning")
-bus=can.Bus(interface='socketcan', channel='can0', bitrate=250000)
+'''
+
+for Linux, store this in your home as can.conf:
+
+# On Linux systems the config file is searched in the following paths:
+# 1. ~/can.conf
+# 2. /etc/can.conf
+# 3. $HOME/.can
+# 4. $HOME/.canrc
+# On Windows systems the config file is searched in the following paths:
+# 1. %USERPROFILE%/can.conf
+# 2. can.ini (current working directory)
+# 3. %APPDATA%/can.ini
+
+[default]
+interface = socketcan
+channel = can0
+bitrate = 250000
+
+[GATEWAY]
+# All the values from the 'default' section are inherited
+bitrate = 500000
+
+'''
+bus=can.Bus(context='GATEWAY')
 bus.set_filters(
     [
         {"can_id": send_id | 1, "can_mask": 0x7FF, "extended": False},
@@ -85,6 +115,8 @@ class Timer:
             msg= True # dummy for while loop entry
             while msg:
                 msg = bus.recv(0.1)
+                if msg and (msg.error_state_indicator or msg.is_error_frame):
+                    break # in case of (permanent error frame e.g. with wrong baud rate we've to break the loop to not stay here forever..
                 if msg and msg.dlc == 8:
                     # get status data
                     status_can_bus=msg.data[4] / 16
@@ -109,9 +141,6 @@ class Timer:
                                     bus_buttons[index].configure(bg="orange", fg="black")
                                 if actual_bus_state==3:
                                     bus_buttons[index].configure(bg="red", fg="yellow")
-
-        except AttributeError:
-            print("Nothing received this time")
         except can.CanError:
             print("Message NOT sent")        
         self.label.after(1000, self.refresh_label)
